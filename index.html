@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>한성대 테마 날씨 · 미니 달력</title>
+<style>
+  :root{
+    --card-bg: rgba(0,0,0,0.35);
+    --text: #fff;
+    --shadow: rgba(0,0,0,0.4);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", Helvetica, Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    color:var(--text);
+    overflow:hidden;
+    background-color:#669fd7; /* will be updated by JS bgMap */
+    transition: background-color .5s ease;
+  }
+
+  /* Hansung header */
+  .header{
+    display:flex; align-items:center; gap:14px;
+    padding:14px 18px;
+    background: linear-gradient(90deg, #0046ad, #0f58c8);
+    box-shadow: 0 2px 10px var(--shadow);
+    position:relative; z-index:7;
+  }
+  .crest{
+    width:28px; height:28px; border-radius:6px; background:#fff; color:#0f58c8;
+    display:grid; place-items:center; font-weight:900; font-size:15px;
+    box-shadow: 0 2px 6px var(--shadow);
+  }
+  .title{ font-size:16px; font-weight:700; letter-spacing:0.2px; }
+  .subtitle{ opacity:.9; font-size:12px; }
+
+  /* Layout */
+  .wrap{
+    position:relative;
+    height:calc(100% - 56px);
+    display:grid;
+    grid-template-columns: 1fr 320px;
+    gap:16px;
+    padding:18px;
+    z-index:6; /* above background layers */
+  }
+  @media (max-width:880px){
+    .wrap{ grid-template-columns: 1fr; padding-bottom:120px; }
+  }
+
+  /* Weather card */
+  #weatherCard{
+    width: min(560px, 100%);
+    background: var(--card-bg);
+    border-radius: 16px;
+    margin-top: 14px;
+    padding: 22px 26px;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.35);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 10px 28px var(--shadow);
+    z-index:7;
+  }
+  #location{ font-size:14px; opacity:.95; margin:0 0 6px; }
+  #temp{ font-size:56px; margin:8px 0 2px; line-height:1; }
+  #desc{ margin:8px 0 6px; font-size:18px; }
+  #codeDisplay{ margin:0; opacity:.85; font-size:13px; }
+
+  /* Mini Calendar */
+  .calendar{
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 14px;
+    box-shadow: 0 10px 28px var(--shadow);
+    backdrop-filter: blur(4px);
+    z-index:7;
+  }
+  .cal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .cal-title{ font-weight:700; font-size:15px; }
+  .cal-nav{ display:flex; gap:6px; }
+  .cal-btn{ border:none; border-radius:10px; padding:8px 10px; cursor:pointer; background:#ffffff22; color:#fff; }
+  .cal-btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .cal-grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
+  .cal-wday{ text-align:center; font-size:11px; opacity:.9; padding:6px 0; }
+  .cell{
+    aspect-ratio: 1; display:grid; place-items:center; border-radius: 12px;
+    background:#ffffff12; font-weight:600; cursor:pointer;
+    transition: transform .15s ease, background .2s ease, outline-color .2s ease;
+    outline: 2px solid transparent; color:#fff;
+  }
+  .cell:hover{ transform: translateY(-1px); background:#ffffff22; }
+  .cell.disabled{ opacity:.35; filter:grayscale(0.2); cursor:not-allowed; background:#ffffff10; }
+  .cell.today{ outline-color:#fff; }
+  .cell.selected{ background:#ffffff35; outline-color:#fff; }
+
+  /* ===== Background layers like original ===== */
+  #sidewalk {
+    position:fixed; bottom:0; left:0; width:100%; height:64px;
+    background-image: url('media/sidewalk.png');
+    background-repeat: repeat-x; background-position: 0 bottom;
+    z-index:5; transition: opacity 0.8s ease-in-out;
+  }
+  #building {
+    position:fixed; bottom:64px; left:0; width:100%; height:100%;
+    background-image: url('media/building.png'); background-repeat: repeat-x;
+    background-position: 0 bottom; z-index:2;
+  }
+  .weatherOverlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 64px;
+    background-size: 100% 100%; background-position: center bottom;
+    opacity: 0; transition: opacity 0.8s ease-in-out; z-index:5; pointer-events: none;
+  }
+  #buildingTheme {
+  position: fixed;
+  bottom: 64px;
+  top: 0;
+  left: 0;
+  right: 0;
+  background-size: 100% 100%;
+  background-position: center bottom;
+  z-index: 3;  /* 기존 건물(2)보다 위 */
+  opacity: 1;
+  transition: opacity .6s ease-in-out;
+}
+  #weatherOverlay1 { z-index:5; }
+  #weatherOverlay2 { z-index:5; }
+  #colorFill {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 4; /* weatherOverlay(5) 아래 / buildingTheme(3) 위 */
+  background-color: rgba(255,255,255,0); /* JS에서 변경됨 */
+  opacity: 0.3;
+  pointer-events: none;
+  transition: background-color .5s ease;
+  transition: opacity .5s ease;
+}
+  #rainCanvas { position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:7; display:none; }
+  #flash { position:fixed; top:0; left:0; width:100%; height:100%; background:white; opacity:0; transition:opacity 0.1s; z-index:7; pointer-events:none; }
+
+  /* Footer */
+  .foot{ position:absolute; right:12px; bottom:12px; font-size:11px; opacity:.85; z-index:6; }
+
+#todoContainer {
+  overflow:hidden;
+  max-height:1000px;
+  transition:max-height .35s ease;
+}
+#todoContainer.closed {
+  max-height:0;
+  padding-top:0!important;
+  padding-bottom:0!important;
+}
+.acc-header .acc-arrow { transition:transform .25s ease; }
+
+</style>
+
+
+<style id="walker-style">
+#walker {
+    position:fixed;
+    bottom:60px;
+    left:-220px;
+    height:180px;
+    z-index:5;
+    pointer-events:none;
+    opacity:0;
+    transition:opacity .4s ease;
+}
+#walker-shadow {
+    position:fixed;
+    bottom:45px;
+    left:-220px;
+    width:85px;
+    height:20px;
+    background:rgba(0,0,0,0.30);
+    border-radius:999px;
+    filter:blur(3px);
+    pointer-events:none;
+    z-index:4;
+    opacity:0;
+    transition:opacity .3s ease;
+}
+
+#todoContainer {
+  overflow:hidden;
+  max-height:1000px;
+  transition:max-height .35s ease;
+}
+#todoContainer.closed {
+  max-height:0;
+  padding-top:0!important;
+  padding-bottom:0!important;
+}
+.acc-header .acc-arrow { transition:transform .25s ease; }
+
+</style>
+
+
+
+<style id="layer-override">
+/* walker/sidewalk/overlay layering */
+#sidewalk { z-index:4 !important; }
+#walker { z-index:5 !important; }
+#walker-shadow { z-index:4 !important; }
+#colorFill { z-index:6 !important; }
+
+#todoContainer {
+  overflow:hidden;
+  max-height:1000px;
+  transition:max-height .35s ease;
+}
+#todoContainer.closed {
+  max-height:0;
+  padding-top:0!important;
+  padding-bottom:0!important;
+}
+.acc-header .acc-arrow { transition:transform .25s ease; }
+
+</style>
+
+
+
+<style id="ui-top">
+.header,
+.wrap,
+.wrap * {
+    position: relative !important;
+    z-index: 999 !important;
+}
+
+#todoContainer {
+  overflow:hidden;
+  max-height:1000px;
+  transition:max-height .35s ease;
+}
+#todoContainer.closed {
+  max-height:0;
+  padding-top:0!important;
+  padding-bottom:0!important;
+}
+.acc-header .acc-arrow { transition:transform .25s ease; }
+
+</style>
+
+
+
+<style>
+#todoBody{
+  overflow:hidden;
+  max-height:1000px;
+  transition:max-height .35s ease;
+}
+#todoBody.closed{
+  max-height:0;
+}
+</style>
+
+
+</head>
+<body>
+
+  <div class="header">
+    <div class="crest">HS</div>
+    <div>
+      <div class="title">Hansung University • 날씨</div>
+      <div class="subtitle">미니 달력으로 날짜를 선택해 예보를 확인하세요</div>
+    </div>
+    <button id="bgToggleBtn" style="
+      margin-left:auto;
+      padding:8px 12px;
+      border:none;
+      border-radius:10px;
+      background:#ffffff22;
+      color:white;
+      cursor:pointer;
+      font-size:13px;
+    ">도시 배경</button>
+    
+  </div>
+
+  <div class="wrap">
+    <main>
+      <section id="weatherCard">
+        <p id="location">서울 성북구 (한성대 부근)</p>
+        <h1 id="temp">--°C</h1>
+        <p id="desc">날씨 로딩 중...</p>
+        <p id="codeDisplay">코드: --</p>
+      </section>
+
+<!-- === ADVANCED TODO LIST (Accordion, Categories, Reminder, Check, Edit/Delete) === -->
+
+<section id="todoContainer" style="
+  width: min(560px, 100%);
+  background: rgba(0,0,0,0.35);
+  border-radius:16px;
+  margin-top:20px;
+  padding:20px;
+  backdrop-filter:blur(4px);
+  box-shadow:0 10px 28px rgba(0,0,0,0.4);
+">
+  <h2 id="todoHeader" class="acc-header" style="margin-top:0; margin-bottom:8px;">
+    📝 To-Do 리스트 <span id="todoArrow" class="acc-arrow">▼</span>
+  </h2>
+
+  <div id="todoBody">
+    <div style="display:flex; gap:10px; margin-bottom:12px;">
+      <select id="todoCategory" style="flex:0.7;padding:8px;border-radius:10px;border:none;">
+        <option value="school">학교</option>
+        <option value="personal">개인</option>
+        <option value="alba">알바</option>
+        <option value="etc">기타</option>
+      </select>
+
+      <input id="todoDate" type="date" style="flex:0.9;padding:8px;border-radius:10px;border:none;">
+
+      <input id="todoInput" type="text" placeholder="할 일을 입력" 
+        style="flex:2;padding:8px;border-radius:10px;border:none;">
+      <button id="addTodo" style="
+          padding:8px 12px;border:none;
+          border-radius:10px;background:#ffffff22;color:white;
+      ">추가</button>
+    </div>
+
+    <div id="accordionArea"></div>
+  </div>
+</section>
+
+<style>
+  .acc-item {margin-bottom:10px;border-radius:12px;overflow:hidden;}
+  .acc-header {
+      background:#ffffff22;padding:12px;font-weight:700;
+      cursor:pointer;display:flex;justify-content:space-between;
+      align-items:center;
+  }
+  .acc-content {
+      max-height:0;overflow:hidden;
+      transition:max-height .35s ease, opacity .35s ease;
+      background:#ffffff15;padding-left:0;opacity:0;
+  }
+  .acc-content.open {opacity:1;}
+  .todo-row {
+      display:flex;justify-content:space-between;
+      align-items:center;padding:10px 14px;
+      animation:fadeIn .25s ease;
+  }
+  @keyframes fadeIn {
+      from {opacity:0;transform:translateY(4px);}
+      to {opacity:1;transform:translateY(0);}
+  }
+  .todo-left {display:flex;align-items:center;gap:10px;}
+  .todo-check {width:18px;height:18px;}
+  .todo-text.done {text-decoration:line-through;opacity:.5;}
+  .todo-btn {
+      border:none;padding:6px 8px;border-radius:8px;
+      background:#ffffff22;color:#fff;margin-left:5px;cursor:pointer;
+  }
+
+#todoContainer {
+  overflow:hidden;
+  max-height:1000px;
+  transition:max-height .35s ease;
+}
+#todoContainer.closed {
+  max-height:0;
+  padding-top:0!important;
+  padding-bottom:0!important;
+}
+.acc-header .acc-arrow { transition:transform .25s ease; }
+
+</style>
+
+
+<script>
+  const categories = {
+    school: "학교",
+    personal: "개인",
+    alba: "알바",
+    etc: "기타"
+  };
+
+  const categoryColors = {
+    school: "#4da3ff",
+    personal: "#ff6bcb",
+    alba: "#ffd43b",
+    etc: "#a9ff96"
+  };
+
+  let todos = JSON.parse(localStorage.getItem("todos_adv") || "{}");
+
+  function saveTodos(){
+    localStorage.setItem("todos_adv", JSON.stringify(todos));
+  }
+
+  function renderAccordion(){
+    const area = document.getElementById("accordionArea");
+    area.innerHTML = "";
+
+    for(const key in categories){
+      if(!todos[key]) todos[key] = [];
+      const list = todos[key];
+
+      const acc = document.createElement("div");
+      acc.className = "acc-item";
+
+      const header = document.createElement("div");
+      header.className = "acc-header";
+      header.innerHTML = `<span>${categories[key]}</span><span class="acc-arrow">▼</span>`;
+
+      const content = document.createElement("div");
+      content.className = "acc-content";
+
+      header.onclick = () => {
+        if(content.style.maxHeight){
+          content.style.maxHeight = null;
+          content.classList.remove("open");
+        } else {
+          content.style.maxHeight = content.scrollHeight + "px";
+          content.classList.add("open");
+        }
+      };
+
+      list.forEach((t, i)=>{
+        const row = document.createElement("div");
+        row.className = "todo-row";
+
+        row.innerHTML = `
+          <div class="todo-left">
+            <input type="checkbox" class="todo-check" ${t.done?"checked":""}
+                onchange="toggleDone('${key}',${i})">
+            <span class="todo-text ${t.done?'done':''}">${t.text} (${t.date||'날짜 없음'})</span>
+          </div>
+          <div>
+            <button class="todo-btn" onclick="editTodo('${key}',${i})">수정</button>
+            <button class="todo-btn" onclick="deleteTodo('${key}',${i})">삭제</button>
+          </div>
+        `;
+        content.appendChild(row);
+      });
+
+      acc.appendChild(header);
+      acc.appendChild(content);
+      area.appendChild(acc);
+    }
+  }
+
+  function addTodo(){
+    const cat = document.getElementById("todoCategory").value;
+    const text = document.getElementById("todoInput").value.trim();
+    const date = document.getElementById("todoDate").value;
+
+    if(!text) return;
+
+    todos[cat].push({
+      text,
+      date,
+      done:false
+    });
+
+    document.getElementById("todoInput").value = "";
+
+    saveTodos();
+    renderAccordion();
+  }
+
+  function toggleDone(cat,i){
+window.toggleDone = toggleDone;
+    todos[cat][i].done = !todos[cat][i].done;
+    saveTodos();
+    renderAccordion();
+  }
+
+  function deleteTodo(cat,i){
+window.deleteTodo = deleteTodo;
+    todos[cat].splice(i,1);
+    saveTodos();
+    renderAccordion();
+  }
+
+  function editTodo(cat,i){
+window.editTodo = editTodo;
+    const nv = prompt("내용 수정", todos[cat][i].text);
+    if(nv && nv.trim()){
+      todos[cat][i].text = nv.trim();
+      saveTodos();
+      renderAccordion();
+    }
+  }
+
+  document.getElementById("addTodo").onclick = addTodo;
+  renderAccordion();
+
+// === To-Do Header Accordion Toggle (A안) ===
+const todoContainer = document.getElementById("todoContainer");
+const todoBody = document.getElementById("todoBody");
+const todoHeader = document.getElementById("todoHeader");
+const todoArrow  = document.getElementById("todoArrow");
+let todoOpen = true;
+
+function updateTodoLayout(){
+  if(!todoBody) return;
+  if(todoOpen){
+    todoBody.classList.remove("closed");
+    if(todoArrow) todoArrow.style.transform = "rotate(0deg)";
+  } else {
+    todoBody.classList.add("closed");
+    if(todoArrow) todoArrow.style.transform = "rotate(180deg)";
+  }
+}
+// 초기 상태 반영
+updateTodoLayout();
+
+if(todoHeader){
+  todoHeader.addEventListener("click", ()=>{
+    todoOpen = !todoOpen;
+    updateTodoLayout();
+  });
+}
+
+</script>
+
+    </main>
+
+    <aside class="calendar">
+      <div class="cal-head">
+        <button id="prevBtn" class="cal-btn" aria-label="이전 달">&lt;</button>
+        <div id="calTitle" class="cal-title">0000.00</div>
+        <button id="nextBtn" class="cal-btn" aria-label="다음 달">&gt;</button>
+      </div>
+      <div class="cal-grid" id="calGrid">
+        <!-- weekday header -->
+      </div>
+    </aside>
+  </div>
+
+  <!-- overlays and background layers (original style) -->
+  <div id="weatherOverlay1" class="weatherOverlay"></div>
+  <div id="weatherOverlay2" class="weatherOverlay"></div>
+
+  <div id="colorFill"></div>
+<div id="buildingTheme"></div>
+
+  <div id="building"></div>
+  <div id="sidewalk"></div>
+  <img id="walker" src="" alt="Hansung character" />
+  <div id="walker-shadow"></div>
+  <canvas id="rainCanvas"></canvas>
+  <div id="flash"></div>
+
+  <div class="foot">Open-Meteo 데이터 · Asia/Seoul</div>
+
+<script>
+/* ===== 기본 좌표 (한성대 근처) ===== */
+const LAT = 37.588;
+const LON = 127.006;
+
+/* ===== 상태 ===== */
+let weatherCodes = [];
+let index = 0;
+let overlayToggle = true;
+
+let dailyForecast = null;   // { time:[], weathercode:[], tmax:[], tmin:[] }
+let todayISO = null;
+let minISO = null;
+let maxISO = null;
+
+/* ===== DOM ===== */
+const tempEl = document.getElementById('temp');
+const descEl = document.getElementById('desc');
+const codeEl = document.getElementById('codeDisplay');
+const overlay1 = document.getElementById('weatherOverlay1');
+const overlay2 = document.getElementById('weatherOverlay2');
+const calGrid = document.getElementById('calGrid');
+const calTitle = document.getElementById('calTitle');
+const prevBtn = document.getElementById('prevBtn');
+
+const walkerEl = document.getElementById('walker');
+const walkerShadow = document.getElementById('walker-shadow');
+let walkerX = -220;
+let walkerStarted = false;
+let lastWalkerTime = null;
+let swayTime = 0;
+const RAIN_CODES = [51,63,65,80,95];   // 비 오는 날
+const SNOW_CODES = [71,73,75];         // 눈 오는 날
+
+function updateWalkerCharacter(code){
+  if(!walkerEl) return;
+  let src = "media/char_normal.png";
+  if(RAIN_CODES.includes(code)) src = "media/char_rain.png";
+  else if(SNOW_CODES.includes(code)) src = "media/char_snow.png";
+  walkerEl.src = src;
+  walkerEl.style.opacity = 1;
+  if(walkerShadow) walkerShadow.style.opacity = 1;
+  if(!walkerStarted){
+    walkerStarted = true;
+    requestAnimationFrame(stepWalker);
+  }
+}
+
+function stepWalker(timestamp){
+  if(!lastWalkerTime) lastWalkerTime = timestamp;
+  const delta = timestamp - lastWalkerTime;
+  lastWalkerTime = timestamp;
+
+  // 기본 이동 속도 (조금 느리게)
+  const speedPerSec = 55;
+  walkerX += speedPerSec * (delta / 1000);
+  if(walkerX > window.innerWidth + 220){
+    walkerX = -220;
+  }
+
+  // 좌우·상하 살짝 흔들리는 모션
+  swayTime += delta * 0.01;
+  const swayX = Math.sin(swayTime * 2) * 6;
+  const swayY = Math.cos(swayTime * 4) * 2;
+  const baseBottom = 60;
+
+  if(walkerEl){
+    walkerEl.style.left = (walkerX + swayX) + "px";
+    walkerEl.style.bottom = (baseBottom + swayY) + "px";
+  }
+  if(walkerShadow){
+    walkerShadow.style.left = (walkerX + swayX + 35) + "px";
+    walkerShadow.style.bottom = "45px";
+  }
+
+  requestAnimationFrame(stepWalker);
+}
+
+/* ===== 날씨 코드 매핑 ===== */
+const weatherMap = {
+  0:"맑음",1:"약간 흐림",2:"부분 흐림",3:"흐림",
+  45:"안개",
+  51:"가벼운 이슬비",53:"중간 이슬비",55:"강한 이슬비",
+  61:"가벼운 비",63:"보통 비",65:"강한 비",
+  71:"가벼운 눈",73:"중간 눈",75:"강한 눈",
+  80:"소나기 비",81:"중간 소나기 비",82:"강한 소나기 비",
+  85:"가벼운 눈 소나기",86:"강한 눈 소나기",
+  95:"천둥 번개"
+};
+
+/* ===== 날씨 조언 매핑 ===== */
+const weatherAdvice = {
+  3: "하늘이 많이 흐려요. 갑작스러운 빗방울이나 어두운 시야에 대비해 조심히 이동하세요!",
+  45: "안개가 짙게 끼어 있어요. 시야가 흐리니 천천히 조심해서 걸어가세요!",
+  51: "가벼운 이슬비가 내려요. 가벼운 우산이라도 챙겨가면 좋아요!",
+  63: "보통 정도의 비가 와요. 우산은 필수예요!",
+  65: "강한 비가 옵니다! 옷이 젖기 쉬우니 단단한 우산과 겉옷이 필요해요!",
+  71: "가벼운 눈이 내려요. 길이 미끄러울 수 있으니 조심해서 걷기!",
+  73: "중간 정도의 눈이 와요. 신발 바닥 미끄럼 주의!",
+  75: "강한 눈이 몰아쳐요! 시야도 흐려지니 이동 시 각별히 조심!",
+  80: "소나기가 내리고 있어요! 갑자기 쏟아질 수 있으니 우산 챙기기!",
+  95: "천둥·번개가 치고 있어요 ⚡ 실외 활동은 가급적 자제해주세요!"
+};
+
+
+const bgMap = {
+  "맑음":"#669fd7","약간 흐림":"#97bde3","부분 흐림":"#97bde3","흐림":"#9fadc4",
+  "안개":"#cfe0f7",
+  "가벼운 이슬비":"#7ea7e0","중간 이슬비":"#7ea7e0","강한 이슬비":"#7ea7e0",
+  "가벼운 비":"#5178b3","보통 비":"#5178b3","강한 비":"#435073",
+  "가벼운 눈":"#7787b0","중간 눈":"#596b99","강한 눈":"#343e59",
+  "소나기 비":"#435073","중간 소나기 비":"#435073","강한 소나기 비":"#435073",
+  "천둥 번개":"#343e59"
+};
+
+/* ===== 유틸 ===== */
+function toISODateString(d){
+  const tz = 'Asia/Seoul';
+  const z = new Date(d.toLocaleString('en-US', { timeZone: tz }));
+  const y = z.getFullYear();
+  const m = String(z.getMonth()+1).padStart(2,'0');
+  const day = String(z.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function fmtMonthTitle(y,m){ return `${y}.${String(m+1).padStart(2,'0')}`; }
+
+/* ===== 현재 날씨 & 예보 API ===== */
+async function getCurrent(){
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current_weather=true&timezone=Asia/Seoul`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const temp = data?.current_weather?.temperature;
+  const code = data?.current_weather?.weathercode;
+  if(typeof temp === 'number') tempEl.textContent = `${Math.round(temp)}°C`;
+  if(typeof code === 'number'){
+    weatherCodes = [code,0,1,3,45,51,63,65,71,73,75,80,95]; // Tab 테스트용 동일 세트
+    index = 0;
+    updateDisplay();
+  }
+}
+async function getDaily(){
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+    `&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia/Seoul`;
+  const res = await fetch(url);
+  const data = await res.json();
+  dailyForecast = {
+    time: data.daily.time,
+    weathercode: data.daily.weathercode,
+    tmax: data.daily.temperature_2m_max,
+    tmin: data.daily.temperature_2m_min
+  };
+  minISO = dailyForecast.time[0];
+  maxISO = dailyForecast.time[dailyForecast.time.length-1];
+}
+
+/* ===== 배경/오버레이/입자 업데이트 ===== */
+function updateDisplay(){
+  // Sound update based on code
+
+  const code = weatherCodes[index];
+  // 캐릭터 업데이트
+  updateWalkerCharacter(code);
+  const desc = weatherMap[code] || "정보 없음";
+  descEl.textContent = desc;
+  // ▶ 날씨 조언 표시
+if (weatherAdvice[code]) {
+  codeEl.textContent = weatherAdvice[code];
+} else {
+  codeEl.textContent = "오늘 날씨에 맞게 편안한 하루 보내세요!";
+}
+  document.body.style.backgroundColor = bgMap[desc] || "lightgray";
+
+  const sidewalk = document.getElementById("sidewalk");
+
+  const newImg = [0,1,2,3,45].includes(code) ? `url('media/${code}.png')` : "";
+
+// color fill layer 업데이트
+const colorFill = document.getElementById("colorFill");
+colorFill.style.backgroundColor = bgMap[desc] || "lightgray";
+if (code === 0 || code === 51 || code ===  71) {
+    colorFill.style.opacity = 0;
+} else {
+    colorFill.style.opacity = 0.3;
+}
+ /*  새 건물 레이어 */
+  const themeBuilding = document.getElementById("buildingTheme");
+  const isSnow = [71,73,75,85,86].includes(code);
+  const targetBuilding = isSnow ? "media/snowyhan.png" : "media/han.png";
+  themeBuilding.style.backgroundImage = `url('${targetBuilding}')`;
+  // overlay cross-fade
+  if(overlayToggle){
+    overlay2.style.backgroundImage = newImg;
+    overlay2.style.opacity = newImg ? 1 : 0;
+    overlay1.style.opacity = 0;
+  } else {
+    overlay1.style.backgroundImage = newImg;
+    overlay1.style.opacity = newImg ? 1 : 0;
+    overlay2.style.opacity = 0;
+  }
+  overlayToggle = !overlayToggle;
+   if(code===0){
+    overlay1.style.zIndex = 3;
+    overlay2.style.zIndex = 3;
+  }
+  else {
+    overlay1.style.zIndex = 5;
+    overlay2.style.zIndex = 5;
+  }
+
+
+  // sidewalk snow transition
+  const targetImg = [71,73,75,85,86].includes(code) ? "media/snowysidewalk.png" : "media/sidewalk.png";
+  const img = new Image();
+  img.src = targetImg;
+  img.onload = () => {
+    sidewalk.style.opacity = 0;
+    setTimeout(()=>{
+      sidewalk.style.backgroundImage = `url('${img.src}')`;
+      sidewalk.style.opacity = 1;
+    }, 100);
+  }
+
+  // particles
+  if ([51,53,55,61,63,65,80,81,82,95].includes(code)) updateRain(code);
+  else if ([71,73,75,85,86].includes(code)) updateSnow(code);
+  else canvas.style.display = "none";
+  // >>> Audio
+  updateSoundByCode(code);
+}
+
+
+/* ===== 키보드 테스트(Tab) ===== */
+document.addEventListener('keydown', e=>{
+  if(e.key === "Tab"){
+    e.preventDefault();
+    if(weatherCodes.length === 0) return;
+    index = (index+1) % weatherCodes.length;
+    updateDisplay();
+  }
+});
+
+/* ===== 길/건물 패럴랙스 애니메이션  ===== */
+let posX = 0;
+const sidewalkEl = document.getElementById("sidewalk");
+const speed = 20;
+let lastTimeSidewalk = null;
+function animateSidewalk(timestamp){
+  if(!lastTimeSidewalk) lastTimeSidewalk = timestamp;
+  const delta = timestamp - lastTimeSidewalk;
+  posX += (speed * delta / 1000);
+  sidewalkEl.style.backgroundPosition = posX + "px bottom";
+  lastTimeSidewalk = timestamp;
+  requestAnimationFrame(animateSidewalk);
+}
+requestAnimationFrame(animateSidewalk);
+
+let buildingPosX = 0;
+const buildingEl = document.getElementById("building");
+const buildingSpeed = 10;
+let lastTimeBuilding = null;
+function animateBuilding(timestamp){
+  if(!lastTimeBuilding) lastTimeBuilding = timestamp;
+  const delta = timestamp - lastTimeBuilding;
+  buildingPosX += (buildingSpeed * delta / 1000);
+  buildingEl.style.backgroundPosition = buildingPosX + "px bottom";
+  lastTimeBuilding = timestamp;
+  requestAnimationFrame(animateBuilding);
+}
+requestAnimationFrame(animateBuilding);
+
+/* ===== Canvas & Particles ===== */
+const canvas = document.getElementById("rainCanvas");
+const ctx = canvas.getContext("2d");
+function resizeCanvas(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+class Splash {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.radius = 1.5 + Math.random() * 1;
+    this.vx = (Math.random() - 0.5) * 2;
+    this.vy = -Math.random() * 2;
+    this.alpha = 1;
+    this.fade = 0.03 + Math.random()*0.02;
+  }
+  update(){ this.x += this.vx; this.y += this.vy; this.vy += 0.1; this.alpha -= this.fade; }
+  draw(ctx){
+    if(this.alpha <= 0) return;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(173,216,230,${this.alpha})`;
+    ctx.fill();
+  }
+}
+
+let raindrops=[], snowflakes=[], splashes=[];
+let maxParticles=400;
+let rainAnimating=false;
+const flash = document.getElementById("flash");
+
+class Raindrop {
+  constructor(weatherCode){ this.weatherCode=weatherCode; this.reset(); }
+  reset(){
+    this.x = (Math.random()*1.25-0.25) * canvas.width;
+    this.y = Math.random() * -canvas.height;
+    this.length = 10 + Math.random()*20;
+    this.angle = Math.PI/2.2;
+    if([51,53,55,56].includes(this.weatherCode)) { this.thickness = 1.0 + Math.random(); this.speed = 6 + Math.random() * 2; }
+    else if([61,63,95].includes(this.weatherCode)) { this.thickness = 1.7 + Math.random()*2; this.speed = 7 + Math.random() * 2; }
+    else { this.thickness = 3.0 + Math.random()*1.5; this.speed = 9 + Math.random() * 2; }
+  }
+  update(){
+    this.x += this.speed * Math.cos(this.angle);
+    this.y += this.speed * Math.sin(this.angle);
+    if(this.y >= canvas.height - 64){
+      for(let i=0; i<2; i++){
+                splashes.push(new Splash(this.x, canvas.height - 65));
+            }
+      this.reset();
+    }
+    if(this.x > canvas.width) this.reset();
+  }
+  draw(ctx){
+    const steps = 5;
+    for(let i=0;i<steps;i++){
+      const t1=i/steps,t2=(i+1)/steps;
+      const sx=this.x - t1*this.length*Math.cos(this.angle);
+      const sy=this.y - t1*this.length*Math.sin(this.angle);
+      const ex=this.x - t2*this.length*Math.cos(this.angle);
+      const ey=this.y - t2*this.length*Math.sin(this.angle);
+      const grad=ctx.createLinearGradient(sx,sy,ex,ey);
+      grad.addColorStop(0,`rgba(173,216,230,${0.8*(1.2-t1)})`);
+      grad.addColorStop(1,`rgba(173,216,230,${0.8*(1.2-t2)})`);
+      ctx.strokeStyle=grad;
+      ctx.lineWidth=this.thickness*(1-t1);
+      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey); ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,this.thickness/2,0,Math.PI*2);
+    ctx.fillStyle="rgba(173,216,230,0.8)";
+    ctx.fill();
+  }
+}
+
+class Snowflake {
+  constructor(weatherCode){ this.weatherCode=weatherCode; this.reset(); }
+  reset(){
+    this.x = (Math.random()*1.7-0.5) * canvas.width;
+    this.y = Math.random() * -canvas.height;
+    this.radius = 1.5 + Math.random()*3;
+    if([71,85].includes(this.weatherCode)) { this.speed = 1.5 + Math.random()*1; this.angle = Math.PI / 2 + (Math.random()*0.4 - 0.2); }
+    else if([73].includes(this.weatherCode)) { this.speed = 3.5 + Math.random()*1.5; this.angle = Math.PI / 2.3 + (Math.random()*0.3 - 0.15); }
+    else { this.speed = 7 + Math.random()*2; this.angle = Math.PI / 2.9 + (Math.random()*0.2 - 0.1); }
+    this.opacity = 0.7 + Math.random()*0.3;
+  }
+  update(){
+    this.x += Math.cos(this.angle) * this.speed;
+    this.y += Math.sin(this.angle) * this.speed;
+    if(this.y > canvas.height - 64) this.reset();
+  }
+  draw(ctx){
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,255,${this.opacity})`;
+    ctx.shadowBlur = 5; ctx.shadowColor = "white"; ctx.fill(); ctx.shadowBlur = 0;
+  }
+}
+
+let lastTime=null;
+function animate(timestamp){
+  if(!lastTime) lastTime=timestamp;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  raindrops.forEach(r=>{r.update();r.draw(ctx);});
+  snowflakes.forEach(s=>{s.update();s.draw(ctx);});
+  splashes.forEach(s=>{s.update();s.draw(ctx);});
+  splashes = splashes.filter(s=>s.alpha>0);
+  const code = weatherCodes[index];
+  if(code === 95){ if(Math.random()<0.01){ triggerLightning(); } }
+  requestAnimationFrame(animate);
+}
+function triggerLightning(){ flash.style.opacity = 0.5; setTimeout(()=>flash.style.opacity=0,100); drawLightning(); try{ playThunder(); }catch(e){} }
+function drawLightning(){
+  const startX = Math.random() * canvas.width;
+  const yStep = 20 + Math.random()*20;
+  let x = startX, y = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 7; ctx.shadowBlur = 20; ctx.shadowColor = "white";
+  ctx.beginPath(); ctx.moveTo(x, y);
+  while(y < canvas.height-64){ x += (Math.random()-0.5)*40; y += yStep; ctx.lineTo(x, (canvas.height-64<y)?canvas.height-64:y); }
+  ctx.stroke(); ctx.shadowBlur = 0;
+}
+function updateRain(code){
+  const lightRain = [51,53,55,56];
+  const normalRain = [61,63,95];
+  const heavyRain = [65,67,80,81,82];
+  if(lightRain.includes(code)) maxParticles=150;
+  else if(normalRain.includes(code)) maxParticles=300;
+  else if(heavyRain.includes(code)) maxParticles=600;
+  else maxParticles=0;
+  snowflakes=[];
+  if(maxParticles>0){ initRain(code); canvas.style.display="block"; if(!rainAnimating){ rainAnimating=true; requestAnimationFrame(animate); } }
+}
+function updateSnow(code){
+  const lightSnow=[71,85], mediumSnow=[73], heavySnow=[75,86];
+  if(lightSnow.includes(code)) maxParticles=200;
+  else if(mediumSnow.includes(code)) maxParticles=500;
+  else if(heavySnow.includes(code)) maxParticles=1300;
+  else maxParticles=0;
+  raindrops=[];
+  if(maxParticles>0){ initSnow(code); canvas.style.display="block"; if(!rainAnimating){ rainAnimating=true; requestAnimationFrame(animate); } }
+}
+function initRain(code){ raindrops=[]; for(let i=0;i<maxParticles;i++) raindrops.push(new Raindrop(code)); }
+function initSnow(code){ snowflakes=[]; for(let i=0;i<maxParticles;i++) snowflakes.push(new Snowflake(code)); }
+
+/* ===== 캘린더 ===== */
+const WDAYS = ["일","월","화","수","목","금","토"];
+let viewYear, viewMonth; // 0-indexed month
+
+function buildWeekHeader(){
+  const frag = document.createDocumentFragment();
+  WDAYS.forEach(w=>{
+    const d = document.createElement('div');
+    d.className = 'cal-wday';
+    d.textContent = w;
+    frag.appendChild(d);
+  });
+  calGrid.innerHTML = "";
+  calGrid.appendChild(frag);
+}
+function renderCalendar(selectedISO){
+  calTitle.textContent = fmtMonthTitle(viewYear, viewMonth);
+  while(calGrid.children.length > 7) calGrid.removeChild(calGrid.lastChild);
+
+  const first = new Date(viewYear, viewMonth, 1);
+  const startW = first.getDay();
+  const lastDate = new Date(viewYear, viewMonth+1, 0).getDate();
+
+  for(let i=0;i<startW;i++){
+    const b = document.createElement('div');
+    b.className = 'cell disabled';
+    calGrid.appendChild(b);
+  }
+  for(let d=1; d<=lastDate; d++){
+    const cell = document.createElement('button');
+    cell.type = "button";
+    cell.className = 'cell';
+    const iso = toISODateString(new Date(first.getFullYear(), first.getMonth(), d));
+    cell.dataset.iso = iso;
+    cell.textContent = d;
+
+    let disabled = false;
+    if(minISO && iso < minISO) disabled = true;
+    if(maxISO && iso > maxISO) disabled = true;
+    if(disabled) cell.classList.add('disabled');
+
+    if(iso === todayISO) cell.classList.add('today');
+    if(selectedISO && iso === selectedISO) cell.classList.add('selected');
+
+    cell.addEventListener('click', ()=>{
+      if(cell.classList.contains('disabled')) return;
+      selectDate(iso);
+      renderCalendar(iso);
+    });
+    
+  // === Mark days with todos ===
+  const isoDate = iso;
+  let hasTodo = false;
+  for(const c in todos){
+    if(todos[c].some(t=>t.date===isoDate)){
+      hasTodo = true; break;
+    }
+  }
+  if(hasTodo){
+    const dot = document.createElement('div');
+    dot.style.width='6px'; dot.style.height='6px';
+    for(const c in todos){
+      if(todos[c].some(t=>t.date===isoDate)){
+        dot.style.background = categoryColors[c] || 'yellow';
+        break;
+      }
+    } dot.style.borderRadius='50%';
+    dot.style.marginTop='2px';
+    cell.appendChild(dot);
+  }
+calGrid.appendChild(cell);
+  }
+
+  const monthStartISO = toISODateString(new Date(viewYear, viewMonth, 1));
+  const nextMonthStartISO = toISODateString(new Date(viewYear, viewMonth+1, 1));
+  prevBtn.disabled = (minISO && monthStartISO <= toISODateString(new Date(minISO)));
+  nextBtn.disabled = (maxISO && nextMonthStartISO > toISODateString(new Date(maxISO)));
+}
+function toLocalISO(iso){
+  const [y,m,d] = iso.split("-").map(Number);
+  return toISODateString(new Date(y, m-1, d));
+}
+function selectDate(iso){
+  const localISO = toLocalISO(iso);
+  if(localISO === todayISO){ getCurrent(); }
+  else { showForecastFor(localISO); }
+}
+function showForecastFor(dateISO){
+  if(!dailyForecast) return;
+  const idx = dailyForecast.time.indexOf(dateISO);
+  if(idx === -1){
+    descEl.textContent = "예보 없음(범위 밖)";
+    codeEl.textContent = "코드: --";
+    tempEl.textContent = "--°C";
+    return;
+  }
+  const code = dailyForecast.weathercode[idx];
+  const tmax = dailyForecast.tmax[idx];
+  const tmin = dailyForecast.tmin[idx];
+
+  weatherCodes = [code]; index = 0; updateDisplay();
+  tempEl.textContent = `${Math.round(tmin)}° / ${Math.round(tmax)}°`;
+}
+
+/* ===== 초기화 ===== */
+async function init(){
+  todayISO = toISODateString(new Date());
+  buildWeekHeader();
+  await getDaily();   // sets minISO/maxISO
+  await getCurrent(); // initial now
+
+  const t = new Date();
+  viewYear = t.getFullYear();
+  viewMonth = t.getMonth();
+  renderCalendar(todayISO);
+
+  prevBtn.addEventListener('click', ()=>{
+    viewMonth--; if(viewMonth<0){ viewMonth=11; viewYear--; }
+    renderCalendar();
+  });
+  nextBtn.addEventListener('click', ()=>{
+    viewMonth++; if(viewMonth>11){ viewMonth=0; viewYear++; }
+    renderCalendar();
+  });
+}
+init();
+
+/* ====== WebAudio: Rain / Snow / Thunder ====== */
+let audioReady = false;
+let audioCtx, masterGain;
+let rainNodes = null;   // {source, filter, gain}
+let snowNodes = null;   // {source, filter, gain}
+let thunderCooldown = 0;
+
+function ensureAudio(){
+  if(audioReady) return;
+  try{
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.3;  // master volume
+    masterGain.connect(audioCtx.destination);
+    audioReady = true;
+  }catch(e){ console.warn("Audio init failed:", e); }
+}
+function resumeAudioIfNeeded(){
+  if(!audioReady) return;
+  if(audioCtx.state === "suspended"){
+    audioCtx.resume().catch(()=>{});
+  }
+}
+
+// Generic white noise buffer
+function createNoiseBuffer(duration=2.0){
+  const sr = audioCtx.sampleRate;
+  const len = Math.floor(sr * duration);
+  const buffer = audioCtx.createBuffer(1, len, sr);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<len;i++){
+    data[i] = (Math.random()*2-1);
+  }
+  return buffer;
+}
+
+/* ---- Rain ---- */
+function startRain(level="normal"){
+  ensureAudio(); resumeAudioIfNeeded();
+  stopSnow(); // exclusive
+  if(rainNodes) return; // already playing
+
+  const src = audioCtx.createBufferSource();
+  src.buffer = createNoiseBuffer(2.0);
+  src.loop = true;
+
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = "lowpass";
+
+  const gain = audioCtx.createGain();
+  // Tune by level
+  if(level==="light"){ filter.frequency.value = 1500; gain.gain.value = 0.18; }
+  else if(level==="heavy"){ filter.frequency.value = 900; gain.gain.value = 0.28; }
+  else{ filter.frequency.value = 1200; gain.gain.value = 0.22; }
+
+  src.connect(filter); filter.connect(gain); gain.connect(masterGain);
+  src.start();
+  rainNodes = {source:src, filter, gain};
+}
+function stopRain(){
+  if(!rainNodes) return;
+  try{ rainNodes.source.stop(); }catch{}
+  try{ rainNodes.source.disconnect(); rainNodes.filter.disconnect(); rainNodes.gain.disconnect(); }catch{}
+  rainNodes = null;
+}
+
+/* ---- Snow ---- */
+function startSnow(level="light"){
+  ensureAudio(); resumeAudioIfNeeded();
+  stopRain(); // exclusive
+  if(snowNodes) return;
+
+  const src = audioCtx.createBufferSource();
+  src.buffer = createNoiseBuffer(2.0);
+  src.loop = true;
+
+  // Soften to feel like soft flakes: highpass slightly then lowpass
+  const hp = audioCtx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1800;
+  const lp = audioCtx.createBiquadFilter(); lp.type="lowpass";  lp.frequency.value=4000;
+
+  const gain = audioCtx.createGain();
+  if(level==="light") gain.gain.value = 0.08;
+  else if(level==="heavy") gain.gain.value = 0.18;
+  else gain.gain.value = 0.12;
+
+  src.connect(hp); hp.connect(lp); lp.connect(gain); gain.connect(masterGain);
+  src.start();
+  snowNodes = {source:src, hp, lp, gain};
+}
+function stopSnow(){
+  if(!snowNodes) return;
+  try{ snowNodes.source.stop(); }catch{}
+  try{ snowNodes.source.disconnect(); snowNodes.hp.disconnect(); snowNodes.lp.disconnect(); snowNodes.gain.disconnect(); }catch{}
+  snowNodes = null;
+}
+
+/* ---- Thunder (one-shot) ---- */
+function playThunder(){
+  ensureAudio(); resumeAudioIfNeeded();
+  // Prevent spam
+  const now = (typeof performance!=="undefined") ? performance.now() : Date.now();
+  if(thunderCooldown && now - thunderCooldown < 2500) return;
+  thunderCooldown = now;
+
+  // Noise burst + low sine "boom"
+  const duration = 2.8;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const nFilter = audioCtx.createBiquadFilter(); nFilter.type="lowpass"; nFilter.frequency.value=300;
+
+  const nGain = audioCtx.createGain(); nGain.gain.setValueAtTime(0.9, audioCtx.currentTime);
+  nGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+
+  noise.connect(nFilter); nFilter.connect(nGain); nGain.connect(masterGain);
+  noise.start();
+
+  const osc = audioCtx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(48, audioCtx.currentTime);
+  const oGain = audioCtx.createGain(); oGain.gain.setValueAtTime(0.7, audioCtx.currentTime);
+  oGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.connect(oGain); oGain.connect(masterGain);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+
+/* ---- Update by code ---- */
+function updateSoundByCode(code){
+  // Rain: 51,63,65,80 (plus other rain codes kept by particles)
+  if([51,53,55,61,63,65,80,81,82].includes(code)){
+    const level = ([51,53,55].includes(code)) ? "light" : ([65,80,81,82].includes(code) ? "heavy" : "normal");
+    startRain(level);
+    stopSnow();
+  } else if([71,73,75,85,86].includes(code)){
+    const level = (code===71||code===85) ? "light" : (code===75||code===86 ? "heavy" : "normal");
+    startSnow(level);
+    stopRain();
+  } else {
+    stopRain();
+    stopSnow();
+  }
+  if(code===95){
+    // play thunder along with flashes
+    playThunder();
+  }
+}
+
+// Unlock audio on first user interaction
+let _audioUnlocked = false;
+function unlockAudio(){
+  if(_audioUnlocked) return;
+  ensureAudio();
+  resumeAudioIfNeeded();
+  _audioUnlocked = true;
+}
+window.addEventListener('pointerdown', unlockAudio, {once:true});
+window.addEventListener('keydown', unlockAudio, {once:true});
+
+</script>
+
+<script>
+let useHansungTheme = true;
+const btn = document.getElementById("bgToggleBtn");
+const buildingTheme = document.getElementById("buildingTheme");
+const colorFill = document.getElementById("colorFill");
+
+function applyBackgroundMode(){
+  if(useHansungTheme){
+    buildingTheme.style.display = "block";
+    colorFill.style.display = "block";
+    btn.textContent = "도시 배경";
+  } else {
+    buildingTheme.style.display = "none";
+    colorFill.style.display = "none";
+    btn.textContent = "한성대 배경";
+  }
+}
+btn.addEventListener("click", ()=>{ useHansungTheme=!useHansungTheme; applyBackgroundMode(); });
+</script>
+
+<!-- Override Removed -->
+
+
+<!-- Override To-Do Inline Edit Functions -->
+<script>
+function renderAccordion(){
+    const area=document.getElementById("accordionArea");
+    area.innerHTML="";
+    for(const key in categories){
+        if(!todos[key]) todos[key]=[];
+        const list=todos[key];
+
+        const acc=document.createElement("div");
+        acc.className="acc-item";
+
+        const header=document.createElement("div");
+        header.className="acc-header";
+        header.innerHTML=`<span>${categories[key]}</span><span class="acc-arrow">▼</span>`;
+
+        const content=document.createElement("div");
+        content.className="acc-content";
+
+        header.onclick=()=>{ 
+            if(content.style.maxHeight){
+                content.style.maxHeight=null;
+                content.classList.remove("open");
+            } else {
+                content.style.maxHeight=content.scrollHeight+"px";
+                content.classList.add("open");
+            }
+        };
+
+        list.forEach((t,i)=>{
+            const row=document.createElement("div");
+            row.className="todo-row";
+
+            if(!t.editing){
+                row.innerHTML=`
+                <div class="todo-left">
+                  <input type="checkbox" class="todo-check" ${t.done?"checked":""}
+                      onchange="toggleDone('${key}',${i})">
+                  <span class="todo-text ${t.done?'done':''}">${t.text} (${t.date||'날짜 없음'})</span>
+                </div>
+                <div>
+                  <button class="todo-btn" onclick="enterEdit('${key}',${i},event)">수정</button>
+                  <button class="todo-btn" onclick="deleteTodo('${key}',${i},event)">삭제</button>
+                </div>`;
+            } else {
+                row.innerHTML=`
+                <div style="display:flex;flex-direction:column;gap:8px;width:100%;">
+                  <div style="display:flex;gap:10px;">
+                    <select id="ec-${key}-${i}" style="flex:.7;padding:6px;border:none;border-radius:10px;">
+                      <option value="school" ${key==="school"?"selected":""}>학교</option>
+                      <option value="personal" ${key==="personal"?"selected":""}>개인</option>
+                      <option value="alba" ${key==="alba"?"selected":""}>알바</option>
+                      <option value="etc" ${key==="etc"?"selected":""}>기타</option>
+                    </select>
+                    <input type="date" id="ed-${key}-${i}" value="${t.date||''}"
+                      style="flex:1;padding:6px;border:none;border-radius:10px;">
+                  </div>
+                  <input type="text" id="et-${key}-${i}" value="${t.text}"
+                    style="padding:6px;border:none;border-radius:10px;">
+                  <div style="display:flex;gap:10px;margin-top:8px;">
+                    <button class="todo-btn" onclick="saveEdit('${key}',${i},event)">저장</button>
+                    <button class="todo-btn" onclick="cancelEdit('${key}',${i},event)">취소</button>
+                  </div>
+                </div>`;
+            }
+            content.appendChild(row);
+        });
+
+        acc.appendChild(header);
+        acc.appendChild(content);
+        area.appendChild(acc);
+
+        content.style.maxHeight=content.scrollHeight+"px";
+        content.classList.add("open");
+    }
+    if(typeof renderCalendar==="function") renderCalendar();
+}
+
+function enterEdit(cat,i,e){ e.stopPropagation(); todos[cat][i].editing=true; saveTodos(); renderAccordion(); }
+function cancelEdit(cat,i,e){ e.stopPropagation(); todos[cat][i].editing=false; saveTodos(); renderAccordion(); }
+function saveEdit(cat,i,e){
+    e.stopPropagation();
+    const t=todos[cat][i];
+    const nc=document.getElementById(`ec-${cat}-${i}`).value;
+    const nd=document.getElementById(`ed-${cat}-${i}`).value;
+    const nt=document.getElementById(`et-${cat}-${i}`).value.trim();
+    if(!nt){ alert("내용 입력!"); return; }
+    if(nc!==cat){
+        todos[cat].splice(i,1);
+        if(!todos[nc]) todos[nc]=[];
+        todos[nc].push({text:nt,date:nd,done:t.done,editing:false});
+    } else {
+        t.text=nt; t.date=nd; t.editing=false;
+    }
+    saveTodos(); renderAccordion();
+}
+
+const oldDel=deleteTodo;
+deleteTodo=function(cat,i,e){ if(e) e.stopPropagation(); oldDel(cat,i); if(renderCalendar) renderCalendar(); };
+
+const oldToggle=toggleDone;
+toggleDone=function(cat,i,e){ if(e) e.stopPropagation(); oldToggle(cat,i); if(renderCalendar) renderCalendar(); };
+
+const oldAdd=addTodo;
+addTodo=function(){ oldAdd(); if(renderCalendar) renderCalendar(); };
+</script>
+
+</body>
+
+</html>
